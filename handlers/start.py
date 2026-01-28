@@ -38,8 +38,7 @@ def get_main_menu() -> ReplyKeyboardMarkup:
     """Создание главного меню бота"""
     keyboard = [
         [BTN_SHOW_BALANCE],
-        [BTN_NOTIFICATIONS],
-        [BTN_HELP]
+        [BTN_NOTIFICATIONS, BTN_HELP]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 

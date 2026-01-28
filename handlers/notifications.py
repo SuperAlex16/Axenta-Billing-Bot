@@ -63,11 +63,18 @@ def get_notifications_menu() -> InlineKeyboardMarkup:
 
 def get_time_selection_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора времени"""
-    keyboard = []
-    for time in TIME_OPTIONS:
-        keyboard.append([InlineKeyboardButton(time, callback_data=f"{CB_TIME_PREFIX}{time}")])
-    keyboard.append([InlineKeyboardButton(BTN_CUSTOM_TIME, callback_data=CB_CUSTOM_TIME)])
-    keyboard.append([InlineKeyboardButton(BTN_BACK, callback_data=CB_BACK)])
+    # Верхний ряд: 3 кнопки с вариантами времени
+    time_buttons = [
+        InlineKeyboardButton(time, callback_data=f"{CB_TIME_PREFIX}{time}")
+        for time in TIME_OPTIONS
+    ]
+    keyboard = [
+        time_buttons,
+        [
+            InlineKeyboardButton(BTN_CUSTOM_TIME, callback_data=CB_CUSTOM_TIME),
+            InlineKeyboardButton(BTN_BACK, callback_data=CB_BACK)
+        ]
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 
