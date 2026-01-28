@@ -95,6 +95,12 @@ def get_back_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_cancel_button() -> InlineKeyboardMarkup:
+    """Кнопка отмены"""
+    keyboard = [[InlineKeyboardButton(BTN_CANCEL, callback_data=CB_CANCEL)]]
+    return InlineKeyboardMarkup(keyboard)
+
+
 async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Показ меню уведомлений"""
     chat_id = update.effective_chat.id
@@ -141,7 +147,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if query.data == CB_SET_NEW:
         # Установка нового уведомления
-        await query.edit_message_text(MSG_NOTIFICATION_AMOUNT_REQUEST)
+        await query.edit_message_text(
+            MSG_NOTIFICATION_AMOUNT_REQUEST,
+            reply_markup=get_cancel_button()
+        )
         return AWAITING_THRESHOLD
 
     elif query.data == CB_MY_NOTIFICATIONS:
@@ -228,7 +237,10 @@ async def receive_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     is_valid, threshold = validate_amount(text)
 
     if not is_valid:
-        await update.message.reply_text(MSG_NOTIFICATION_INVALID_AMOUNT)
+        await update.message.reply_text(
+            MSG_NOTIFICATION_INVALID_AMOUNT,
+            reply_markup=get_cancel_button()
+        )
         return AWAITING_THRESHOLD
 
     # Сохраняем порог для последующего использования
@@ -257,7 +269,10 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
         return NOTIFICATION_MENU
 
     elif query.data == CB_CUSTOM_TIME:
-        await query.edit_message_text(MSG_NOTIFICATION_CUSTOM_TIME_REQUEST)
+        await query.edit_message_text(
+            MSG_NOTIFICATION_CUSTOM_TIME_REQUEST,
+            reply_markup=get_cancel_button()
+        )
         return AWAITING_CUSTOM_TIME
 
     elif query.data.startswith(CB_TIME_PREFIX):
@@ -277,7 +292,10 @@ async def receive_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE
     match = time_pattern.match(text)
 
     if not match:
-        await update.message.reply_text(MSG_NOTIFICATION_INVALID_TIME)
+        await update.message.reply_text(
+            MSG_NOTIFICATION_INVALID_TIME,
+            reply_markup=get_cancel_button()
+        )
         return AWAITING_CUSTOM_TIME
 
     # Форматируем время в HH:MM
