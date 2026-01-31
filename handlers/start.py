@@ -112,7 +112,9 @@ async def receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     context.user_data['email'] = email
     logger.info(f"Email получен: {email}")
 
-    await update.message.reply_text(MSG_PASSWORD_REQUEST)
+    # Сохраняем ID сообщения с запросом пароля для последующего удаления
+    msg = await update.message.reply_text(MSG_PASSWORD_REQUEST, parse_mode='Markdown')
+    context.user_data['password_request_msg_id'] = msg.message_id
     return AWAITING_PASSWORD
 
 
@@ -131,6 +133,15 @@ async def receive_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.info("Сообщение с паролем удалено")
     except Exception as e:
         logger.error(f"Не удалось удалить сообщение с паролем: {e}")
+
+    # Удаляем сообщение с запросом пароля (от бота)
+    try:
+        password_msg_id = context.user_data.get('password_request_msg_id')
+        if password_msg_id:
+            await context.bot.delete_message(chat_id=chat_id, message_id=password_msg_id)
+            logger.info("Сообщение с запросом пароля удалено")
+    except Exception as e:
+        logger.error(f"Не удалось удалить сообщение с запросом пароля: {e}")
 
     # Аутентификация через Axenta API
     logger.info(f"Попытка аутентификации для {user_login}")
