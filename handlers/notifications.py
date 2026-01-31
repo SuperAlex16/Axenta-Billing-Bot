@@ -148,7 +148,7 @@ async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     sheets.update_last_activity(chat_id)
 
     await update.message.reply_text(
-        "Управление уведомлениями:",
+        "🔔 Управление уведомлениями:",
         reply_markup=get_notifications_menu()
     )
 
@@ -183,12 +183,12 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         else:
             timezone = context.user_data.get('timezone', '3')
-            text = f"Ваши уведомления (UTC+{timezone}):\n\n"
+            text = f"🔔 Ваши уведомления (UTC+{timezone}):\n\n"
             for i, notif in enumerate(notifications, 1):
                 time_str = notif.notification_time if notif.notification_time else "не задано"
-                text += f"{i}. ID: {notif.notification_id}\n"
-                text += f"   Порог: {notif.threshold} руб\n"
-                text += f"   Время: {time_str}\n\n"
+                text += f"📌 Уведомление {i}\n"
+                text += f"   💰 Порог: {notif.threshold} руб\n"
+                text += f"   🕐 Время: {time_str}\n\n"
 
             await query.edit_message_text(
                 text,
@@ -210,18 +210,18 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Создаём кнопки для выбора уведомления
         keyboard = []
-        for notif in notifications:
+        for i, notif in enumerate(notifications, 1):
             time_str = notif.notification_time if notif.notification_time else "?"
             keyboard.append([
                 InlineKeyboardButton(
-                    f"ID: {notif.notification_id} | {notif.threshold} руб | {time_str}",
+                    f"📌 #{i} | 💰 {notif.threshold} руб | 🕐 {time_str}",
                     callback_data=f"{CB_DELETE_PREFIX}{notif.notification_id}"
                 )
             ])
         keyboard.append([InlineKeyboardButton(BTN_BACK, callback_data=CB_BACK)])
 
         await query.edit_message_text(
-            "Выберите уведомление для удаления:",
+            "🗑 Выберите уведомление для удаления:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -230,7 +230,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     elif query.data == CB_BACK:
         # Возврат в меню
         await query.edit_message_text(
-            "Управление уведомлениями:",
+            "🔔 Управление уведомлениями:",
             reply_markup=get_notifications_menu()
         )
         return NOTIFICATION_MENU
@@ -242,7 +242,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.pop('pending_delete_id', None)
         context.user_data.pop('bot_message_id', None)
         await query.edit_message_text(
-            "Управление уведомлениями:",
+            "🔔 Управление уведомлениями:",
             reply_markup=get_notifications_menu()
         )
         return NOTIFICATION_MENU
@@ -319,7 +319,7 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
     if query.data == CB_BACK:
         context.user_data.pop('pending_threshold', None)
         await query.edit_message_text(
-            "Управление уведомлениями:",
+            "🔔 Управление уведомлениями:",
             reply_markup=get_notifications_menu()
         )
         return NOTIFICATION_MENU
@@ -447,7 +447,7 @@ async def handle_set_confirmation(update: Update, context: ContextTypes.DEFAULT_
         context.user_data.pop('pending_time', None)
         context.user_data.pop('bot_message_id', None)
         await query.edit_message_text(
-            "Создание уведомления отменено.\n\nУправление уведомлениями:",
+            "Создание уведомления отменено.\n\n🔔 Управление уведомлениями:",
             reply_markup=get_notifications_menu()
         )
         return NOTIFICATION_MENU
@@ -508,7 +508,7 @@ async def handle_delete_selection(update: Update, context: ContextTypes.DEFAULT_
 
     if query.data == CB_BACK:
         await query.edit_message_text(
-            "Управление уведомлениями:",
+            "🔔 Управление уведомлениями:",
             reply_markup=get_notifications_menu()
         )
         return NOTIFICATION_MENU
@@ -560,7 +560,7 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         context.user_data.pop('pending_delete_time', None)
         context.user_data.pop('bot_message_id', None)
         await query.edit_message_text(
-            "Удаление отменено.\n\nУправление уведомлениями:",
+            "Удаление отменено.\n\n🔔 Управление уведомлениями:",
             reply_markup=get_notifications_menu()
         )
         return NOTIFICATION_MENU
@@ -659,7 +659,7 @@ async def restart_notifications_menu(update: Update, context: ContextTypes.DEFAU
 
     # Отправляем НОВОЕ сообщение с меню
     await update.message.reply_text(
-        "Управление уведомлениями:",
+        "🔔 Управление уведомлениями:",
         reply_markup=get_notifications_menu()
     )
 
