@@ -77,6 +77,16 @@ class User:
                 pass
         return True
 
+    def needs_admin_recheck(self) -> bool:
+        """Проверка необходимости повторной проверки IsAdmin"""
+        if not self.next_check:
+            return True
+        try:
+            next_check_date = datetime.strptime(self.next_check, '%Y-%m-%d %H:%M:%S')
+            return datetime.now() > next_check_date
+        except ValueError:
+            return True
+
 
 @dataclass
 class AccountBalance:
@@ -104,17 +114,18 @@ class AccountBalance:
 
     def format_message(self) -> str:
         """Форматирование сообщения о балансе"""
-        return f"""Аккаунт: {self.organization}
-Дата запроса: {datetime.now().strftime('%d.%m.%Y')}
+        account_name = self.organization if self.organization else self.account_login
+        return f"""🏢 Аккаунт: {account_name}
+📅 Дата запроса: {datetime.now().strftime('%d.%m.%Y')}
 
-Тариф за 1 объект: {self.tariff} руб/день
-Активных объектов: {self.active_objects}
-Средняя сумма списания: {self.avg_charge} руб/день
+📊 Тариф за 1 объект: {self.tariff} руб/день
+📦 Активных объектов: {self.active_objects}
+💸 Средняя сумма списания: {self.avg_charge} руб/день
 
-Текущий баланс: {self.balance} руб
-Баланса хватит на: {self.days_left} дней
+💰 Текущий баланс: {self.balance} руб
+⏳ Баланса хватит на: {self.days_left} дней
 
-Данные обновляются 1 раз в сутки!"""
+_Данные обновляются 1 раз в сутки!_"""
 
 
 @dataclass
@@ -128,7 +139,7 @@ class Notification:
     threshold: float = 0.0
     notification_time: str = ''
     current_balance: str = ''
-    send_status: str = 'Отправить'
+    send_status: str = 'Ожидание'
 
     def to_row(self) -> list:
         """Преобразование в строку для Google Sheets"""

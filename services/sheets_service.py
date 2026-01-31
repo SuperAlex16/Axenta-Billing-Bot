@@ -16,7 +16,7 @@ from utils.constants import (
     DATA_COL_ACCOUNT,
     NOTIF_COL_CHAT_ID, NOTIF_COL_ID, NOTIF_COL_STATUS,
     AUTH_STATUS_PASSED, NOTIF_STATUS_ACTIVE, NOTIF_STATUS_DELETED,
-    NOTIF_SEND_STATUS_SEND, NOTIF_SEND_STATUS_WAIT
+    NOTIF_SEND_STATUS_WAIT, NOTIF_SEND_STATUS_SENT
 )
 from models.user import User, AccountBalance, Notification
 
@@ -54,7 +54,7 @@ class SheetsService:
             'balances': {},   # account_login -> (AccountBalance, timestamp)
             'logins': {},     # user_login -> (dict, timestamp)
         }
-        self._cache_ttl = 300  # 5 минут
+        self._cache_ttl = 86400  # 24 часа (БД обновляется раз в сутки)
 
         self._connect()
         self._initialized = True
@@ -107,6 +107,12 @@ class SheetsService:
                 del self._cache[cache_key][item_key]
         elif cache_key in self._cache:
             self._cache[cache_key] = {}
+
+    def clear_all_cache(self):
+        """Полная очистка всего кэша (вызывается после обновления БД)"""
+        for cache_key in self._cache:
+            self._cache[cache_key] = {}
+        logger.info("Весь кэш очищен")
 
     def get_worksheet(self, sheet_name: str) -> Optional[gspread.Worksheet]:
         """Получить лист по имени"""
@@ -277,6 +283,63 @@ class SheetsService:
             14,  # COL_LAST_ACTIVITY
             datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         )
+
+    def recheck_admin_status(self, chat_id: int, user_login: str) -> tuple[bool, str]:
+        """
+        Повторная проверка статуса IsAdmin из листа Пользователи.
+        Обновляет IsAdmin, last_check и next_check в листе Чаты.
+
+        Args:
+            chat_id: ID чата пользователя
+            user_login: Логин пользователя в системе Axenta
+
+        Returns:
+            (is_admin: bool, message: str) - является ли админом и сообщение
+        """
+        # Получаем актуальный статус из листа Пользователи
+        user_info = self.find_user_login(user_login)
+
+        if not user_info:
+            logger.warning(f"Логин {user_login} не найден при повторной проверке")
+            return False, "Логин не найден в системе"
+
+        is_admin = user_info.get('is_admin', '').lower().strip()
+        is_admin_yes = is_admin == 'да'
+
+        now = datetime.now()
+        last_check = now.strftime('%Y-%m-%d %H:%M:%S')
+        next_check = (now + timedelta(days=365)).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Обновляем поля в листе Чаты
+        sheet = self.get_worksheet(SHEET_CHATS)
+        if not sheet:
+            return False, "Ошибка доступа к данным"
+
+        try:
+            cell = sheet.find(str(chat_id), in_column=1)
+            if not cell:
+                return False, "Пользователь не найден"
+
+            # Обновляем IsAdmin (H), last_check (L), next_check (M) одним запросом
+            sheet.batch_update([
+                {'range': f'H{cell.row}', 'values': [[user_info.get('is_admin', '')]]},
+                {'range': f'L{cell.row}', 'values': [[last_check]]},
+                {'range': f'M{cell.row}', 'values': [[next_check]]}
+            ])
+
+            # Инвалидируем кэш
+            self._invalidate_cache('users', str(chat_id))
+
+            logger.info(f"Статус IsAdmin обновлён для {chat_id}: {is_admin}, след. проверка: {next_check}")
+
+            if is_admin_yes:
+                return True, "Статус подтверждён"
+            else:
+                return False, "Статус администратора отозван"
+
+        except Exception as e:
+            logger.error(f"Ошибка обновления статуса IsAdmin: {e}")
+            return False, f"Ошибка проверки: {e}"
 
     # ==================== Методы для работы с балансом ====================
 

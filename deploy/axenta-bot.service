@@ -1,0 +1,27 @@
+[Unit]
+Description=Axenta Billing Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=alien
+Group=alien
+WorkingDirectory=/opt/axenta-bot
+ExecStart=/opt/axenta-bot/venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+# Переменные окружения (или использовать EnvironmentFile)
+# EnvironmentFile=/opt/axenta-bot/.env
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=axenta-bot
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

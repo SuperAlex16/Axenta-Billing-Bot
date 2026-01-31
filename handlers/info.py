@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from services.sheets_service import SheetsService
 from utils.constants import (
-    MSG_NOT_REGISTERED, MSG_AUTH_EXPIRED, MSG_BALANCE_ERROR
+    MSG_NOT_REGISTERED, MSG_AUTH_EXPIRED, MSG_BALANCE_ERROR, MSG_ADMIN_STATUS_REVOKED
 )
 from utils.logger import setup_logger
 
@@ -34,6 +34,15 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(MSG_AUTH_EXPIRED)
         return
 
+    # Проверка необходимости повторной верификации IsAdmin
+    if user.needs_admin_recheck():
+        logger.info(f"Требуется повторная проверка IsAdmin для {chat_id}")
+        is_admin, message = sheets.recheck_admin_status(chat_id, user.user_login)
+        if not is_admin:
+            logger.warning(f"Статус IsAdmin отозван для {chat_id}: {message}")
+            await update.message.reply_text(MSG_ADMIN_STATUS_REVOKED)
+            return
+
     # Обновляем время последней активности
     sheets.update_last_activity(chat_id)
 
@@ -47,7 +56,7 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Форматируем и отправляем сообщение
     message = balance_info.format_message()
-    await update.message.reply_text(message)
+    await update.message.reply_text(message, parse_mode='Markdown')
 
     # Логируем
     sheets.add_log(

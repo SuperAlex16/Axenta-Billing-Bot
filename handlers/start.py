@@ -17,7 +17,7 @@ from services.axenta_api import AxentaAPI
 from models.user import User
 from utils.validators import validate_email
 from utils.constants import (
-    MSG_WELCOME, MSG_LOGIN_NOT_FOUND, MSG_EMAIL_REQUEST, MSG_EMAIL_INVALID,
+    MSG_WELCOME, MSG_LOGIN_NOT_FOUND, MSG_NOT_ADMIN, MSG_EMAIL_REQUEST, MSG_EMAIL_INVALID,
     MSG_PASSWORD_REQUEST, MSG_AUTH_SUCCESS, MSG_AUTH_FAILED,
     MSG_ALREADY_REGISTERED, MSG_REGISTRATION_CANCELLED, MSG_SAVE_ERROR,
     BTN_SHOW_BALANCE, BTN_NOTIFICATIONS, BTN_HELP, AUTH_STATUS_PASSED
@@ -83,12 +83,19 @@ async def receive_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text(MSG_LOGIN_NOT_FOUND)
         return AWAITING_LOGIN
 
+    # Проверка IsAdmin
+    is_admin = user_info.get('is_admin', '').lower().strip()
+    if is_admin != 'да':
+        logger.warning(f"Попытка регистрации не-админа: {user_login} (is_admin={is_admin})")
+        await update.message.reply_text(MSG_NOT_ADMIN)
+        return ConversationHandler.END
+
     # Сохраняем данные
     context.user_data['user_login'] = user_login
     context.user_data['account_login'] = user_info['account_name']
     context.user_data['is_admin'] = user_info['is_admin']
 
-    logger.info(f"Логин найден. Аккаунт: {user_info['account_name']}")
+    logger.info(f"Логин найден. Аккаунт: {user_info['account_name']}, IsAdmin: {is_admin}")
 
     await update.message.reply_text(MSG_EMAIL_REQUEST)
     return AWAITING_EMAIL

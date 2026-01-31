@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.logger import setup_logger
 from utils.constants import (
     MSG_BALANCE_ALERT,
-    NOTIF_SEND_STATUS_SEND, NOTIF_SEND_STATUS_WAIT
+    NOTIF_SEND_STATUS_WAIT, NOTIF_SEND_STATUS_SENT
 )
 from config import NOTIFICATION_TIMEZONE
 
@@ -180,51 +180,57 @@ class NotificationChecker:
             threshold = notification.threshold
 
             # Проверяем условия отправки
-            if current_balance <= threshold and notification.send_status == NOTIF_SEND_STATUS_SEND:
-                # Баланс ниже порога и нужно отправить уведомление
-                await self._send_notification(notification, current_balance)
+            if current_balance <= threshold and notification.send_status == NOTIF_SEND_STATUS_WAIT:
+                # Баланс ниже порога и уведомление ожидает отправки
+                await self._send_notification(notification, current_balance, balance_info)
 
-                # Обновляем статус на "Ожидание" (чтобы не отправлять повторно)
+                # Обновляем статус на "Отправлено"
+                self.sheets_service.update_notification_status(
+                    notification.chat_id,
+                    notification.notification_id,
+                    str(current_balance),
+                    NOTIF_SEND_STATUS_SENT
+                )
+
+            elif current_balance > threshold and notification.send_status == NOTIF_SEND_STATUS_SENT:
+                # Баланс восстановлен выше порога, сбрасываем статус на "Ожидание"
                 self.sheets_service.update_notification_status(
                     notification.chat_id,
                     notification.notification_id,
                     str(current_balance),
                     NOTIF_SEND_STATUS_WAIT
                 )
-
-            elif current_balance > threshold and notification.send_status == NOTIF_SEND_STATUS_WAIT:
-                # Баланс выше порога, сбрасываем статус на "Отправить"
-                self.sheets_service.update_notification_status(
-                    notification.chat_id,
-                    notification.notification_id,
-                    str(current_balance),
-                    NOTIF_SEND_STATUS_SEND
-                )
                 logger.info(
                     f"Баланс {notification.account_login} восстановлен выше порога "
-                    f"({current_balance} > {threshold})"
+                    f"({current_balance} > {threshold}), статус сброшен на Ожидание"
                 )
 
         except Exception as e:
             logger.error(f"Ошибка обработки уведомления {notification.notification_id}: {e}")
 
-    async def _send_notification(self, notification, current_balance: float):
+    async def _send_notification(self, notification, current_balance: float, balance_info=None):
         """
         Отправка уведомления пользователю
 
         Args:
             notification: Объект Notification
             current_balance: Текущий баланс
+            balance_info: Информация о балансе аккаунта
         """
         try:
             message = MSG_BALANCE_ALERT.format(
                 balance=current_balance,
-                threshold=notification.threshold
+                threshold=notification.threshold,
+                tariff=balance_info.tariff if balance_info else '0',
+                active_objects=balance_info.active_objects if balance_info else '0',
+                avg_charge=balance_info.avg_charge if balance_info else '0',
+                days_left=balance_info.days_left if balance_info else '0'
             )
 
             await self.bot.send_message(
                 chat_id=notification.chat_id,
-                text=message
+                text=message,
+                parse_mode='Markdown'
             )
 
             logger.info(

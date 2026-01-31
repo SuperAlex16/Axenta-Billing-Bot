@@ -16,16 +16,25 @@ from telegram.ext import (
     filters
 )
 
+from apscheduler.triggers.cron import CronTrigger
 from config import TELEGRAM_BOT_TOKEN
 from handlers.start import registration_handler, get_main_menu
 from handlers.info import show_balance
 from handlers.notifications import notifications_handler
 from handlers.common import help_command
 from services.notification_checker import NotificationChecker
+from services.sheets_service import SheetsService
 from utils.logger import setup_logger
 from utils.constants import BTN_SHOW_BALANCE, BTN_HELP
 
 logger = setup_logger(__name__)
+
+
+def clear_cache_job():
+    """Задача очистки кэша (вызывается в 03:05 MSK после обновления БД)"""
+    sheets = SheetsService()
+    sheets.clear_all_cache()
+    logger.info("Кэш очищен по расписанию (03:05 MSK)")
 
 
 async def post_init(application: Application):
@@ -35,6 +44,16 @@ async def post_init(application: Application):
     # Запуск планировщика уведомлений (проверка каждую минуту)
     checker = NotificationChecker(application.bot)
     checker.start(check_interval_minutes=1)
+
+    # Добавляем задачу очистки кэша в 03:05 MSK (00:05 UTC)
+    checker.scheduler.add_job(
+        clear_cache_job,
+        CronTrigger(hour=0, minute=5),  # 00:05 UTC = 03:05 MSK
+        id='cache_clear',
+        name='Clear cache after DB update',
+        replace_existing=True
+    )
+    logger.info("Задача очистки кэша добавлена (03:05 MSK / 00:05 UTC)")
 
     # Сохраняем checker в bot_data для последующего доступа
     application.bot_data['notification_checker'] = checker
@@ -104,7 +123,8 @@ def main():
 
     # Запуск бота
     logger.info("Бот запущен и готов к работе!")
-    logger.info("Уведомления проверяются каждую минуту и отправляются в указанное пользователем время")
+    logger.info("Уведомления проверяются каждую минуту")
+    logger.info("Кэш очищается ежедневно в 03:05 MSK после обновления БД")
 
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,

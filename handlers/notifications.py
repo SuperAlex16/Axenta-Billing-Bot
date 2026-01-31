@@ -18,6 +18,7 @@ from models.user import Notification
 from utils.validators import validate_amount
 from utils.constants import (
     MSG_NOT_REGISTERED, MSG_AUTH_EXPIRED, MSG_NO_NOTIFICATIONS,
+    MSG_ADMIN_STATUS_REVOKED,
     MSG_NOTIFICATION_SET, MSG_NOTIFICATION_DELETED,
     MSG_NOTIFICATION_AMOUNT_REQUEST, MSG_NOTIFICATION_INVALID_AMOUNT,
     MSG_NOTIFICATION_TIME_REQUEST, MSG_NOTIFICATION_CUSTOM_TIME_REQUEST,
@@ -25,7 +26,7 @@ from utils.constants import (
     MSG_NOTIFICATION_DELETE_CONFIRM,
     BTN_SET_NOTIFICATION, BTN_MY_NOTIFICATIONS, BTN_DELETE_NOTIFICATION, BTN_BACK,
     BTN_CONFIRM, BTN_CANCEL, BTN_CUSTOM_TIME, TIME_OPTIONS,
-    AUTH_STATUS_PASSED, NOTIF_SEND_STATUS_SEND
+    AUTH_STATUS_PASSED, NOTIF_SEND_STATUS_WAIT
 )
 from utils.logger import setup_logger
 
@@ -125,6 +126,15 @@ async def notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(MSG_AUTH_EXPIRED)
         return ConversationHandler.END
 
+    # Проверка необходимости повторной верификации IsAdmin
+    if user.needs_admin_recheck():
+        logger.info(f"Требуется повторная проверка IsAdmin для {chat_id}")
+        is_admin, message = sheets.recheck_admin_status(chat_id, user.user_login)
+        if not is_admin:
+            logger.warning(f"Статус IsAdmin отозван для {chat_id}: {message}")
+            await update.message.reply_text(MSG_ADMIN_STATUS_REVOKED)
+            return ConversationHandler.END
+
     # Сохраняем данные пользователя в context
     context.user_data['account_login'] = user.account_login
     context.user_data['user_login'] = user.user_login
@@ -154,10 +164,12 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if query.data == CB_SET_NEW:
         # Установка нового уведомления
-        await query.edit_message_text(
+        result = await query.edit_message_text(
             MSG_NOTIFICATION_AMOUNT_REQUEST,
             reply_markup=get_cancel_button()
         )
+        # Сохраняем message_id для последующего редактирования
+        context.user_data['bot_message_id'] = result.message_id
         return AWAITING_THRESHOLD
 
     elif query.data == CB_MY_NOTIFICATIONS:
@@ -228,6 +240,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data.pop('pending_threshold', None)
         context.user_data.pop('pending_time', None)
         context.user_data.pop('pending_delete_id', None)
+        context.user_data.pop('bot_message_id', None)
         await query.edit_message_text(
             "Управление уведомлениями:",
             reply_markup=get_notifications_menu()
@@ -240,24 +253,60 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def receive_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Получение порогового значения баланса"""
     text = update.message.text.strip()
+    chat_id = update.effective_chat.id
+    bot_message_id = context.user_data.get('bot_message_id')
+
+    # Удаляем сообщение пользователя с введённой суммой
+    try:
+        await update.message.delete()
+    except Exception:
+        pass  # Игнорируем ошибки удаления
 
     is_valid, threshold = validate_amount(text)
 
     if not is_valid:
-        await update.message.reply_text(
+        # Редактируем предыдущее сообщение бота
+        if bot_message_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=bot_message_id,
+                    text=MSG_NOTIFICATION_INVALID_AMOUNT,
+                    reply_markup=get_cancel_button()
+                )
+                return AWAITING_THRESHOLD
+            except Exception:
+                pass
+        # Fallback: отправляем новое сообщение
+        result = await update.message.reply_text(
             MSG_NOTIFICATION_INVALID_AMOUNT,
             reply_markup=get_cancel_button()
         )
+        context.user_data['bot_message_id'] = result.message_id
         return AWAITING_THRESHOLD
 
     # Сохраняем порог для последующего использования
     context.user_data['pending_threshold'] = threshold
 
-    # Переходим к выбору времени
-    await update.message.reply_text(
+    # Редактируем предыдущее сообщение бота для выбора времени
+    if bot_message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=bot_message_id,
+                text=MSG_NOTIFICATION_TIME_REQUEST,
+                reply_markup=get_time_selection_keyboard()
+            )
+            return AWAITING_TIME
+        except Exception:
+            pass
+
+    # Fallback: отправляем новое сообщение
+    result = await update.message.reply_text(
         MSG_NOTIFICATION_TIME_REQUEST,
         reply_markup=get_time_selection_keyboard()
     )
+    context.user_data['bot_message_id'] = result.message_id
 
     return AWAITING_TIME
 
@@ -276,10 +325,12 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
         return NOTIFICATION_MENU
 
     elif query.data == CB_CUSTOM_TIME:
-        await query.edit_message_text(
+        result = await query.edit_message_text(
             MSG_NOTIFICATION_CUSTOM_TIME_REQUEST,
             reply_markup=get_cancel_button()
         )
+        # Обновляем message_id для последующего редактирования
+        context.user_data['bot_message_id'] = result.message_id
         return AWAITING_CUSTOM_TIME
 
     elif query.data.startswith(CB_TIME_PREFIX):
@@ -293,16 +344,38 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
 async def receive_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Получение пользовательского времени"""
     text = update.message.text.strip()
+    chat_id = update.effective_chat.id
+    bot_message_id = context.user_data.get('bot_message_id')
+
+    # Удаляем сообщение пользователя с введённым временем
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
     # Валидация формата времени ЧЧ:ММ
     time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$')
     match = time_pattern.match(text)
 
     if not match:
-        await update.message.reply_text(
+        # Редактируем предыдущее сообщение бота
+        if bot_message_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=bot_message_id,
+                    text=MSG_NOTIFICATION_INVALID_TIME,
+                    reply_markup=get_cancel_button()
+                )
+                return AWAITING_CUSTOM_TIME
+            except Exception:
+                pass
+        # Fallback
+        result = await update.message.reply_text(
             MSG_NOTIFICATION_INVALID_TIME,
             reply_markup=get_cancel_button()
         )
+        context.user_data['bot_message_id'] = result.message_id
         return AWAITING_CUSTOM_TIME
 
     # Форматируем время в HH:MM
@@ -316,13 +389,31 @@ async def receive_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE
     threshold = context.user_data.get('pending_threshold', 0)
     timezone = context.user_data.get('timezone', '3')
 
-    await update.message.reply_text(
+    # Редактируем предыдущее сообщение бота
+    if bot_message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=bot_message_id,
+                text=MSG_NOTIFICATION_CONFIRM.format(
+                    threshold=threshold,
+                    time=f"{formatted_time} (UTC+{timezone})"
+                ),
+                reply_markup=get_confirm_keyboard()
+            )
+            return CONFIRM_SET
+        except Exception:
+            pass
+
+    # Fallback
+    result = await update.message.reply_text(
         MSG_NOTIFICATION_CONFIRM.format(
             threshold=threshold,
             time=f"{formatted_time} (UTC+{timezone})"
         ),
         reply_markup=get_confirm_keyboard()
     )
+    context.user_data['bot_message_id'] = result.message_id
 
     return CONFIRM_SET
 
@@ -354,6 +445,7 @@ async def handle_set_confirmation(update: Update, context: ContextTypes.DEFAULT_
     if query.data == CB_CANCEL:
         context.user_data.pop('pending_threshold', None)
         context.user_data.pop('pending_time', None)
+        context.user_data.pop('bot_message_id', None)
         await query.edit_message_text(
             "Создание уведомления отменено.\n\nУправление уведомлениями:",
             reply_markup=get_notifications_menu()
@@ -372,7 +464,7 @@ async def handle_set_confirmation(update: Update, context: ContextTypes.DEFAULT_
             auth_status=context.user_data.get('auth_status', AUTH_STATUS_PASSED),
             threshold=threshold,
             notification_time=notification_time,
-            send_status=NOTIF_SEND_STATUS_SEND
+            send_status=NOTIF_SEND_STATUS_WAIT
         )
 
         if sheets.add_notification(notification):
@@ -400,6 +492,7 @@ async def handle_set_confirmation(update: Update, context: ContextTypes.DEFAULT_
         # Очищаем временные данные
         context.user_data.pop('pending_threshold', None)
         context.user_data.pop('pending_time', None)
+        context.user_data.pop('bot_message_id', None)
 
         return NOTIFICATION_MENU
 
@@ -465,6 +558,7 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         context.user_data.pop('pending_delete_id', None)
         context.user_data.pop('pending_delete_threshold', None)
         context.user_data.pop('pending_delete_time', None)
+        context.user_data.pop('bot_message_id', None)
         await query.edit_message_text(
             "Удаление отменено.\n\nУправление уведомлениями:",
             reply_markup=get_notifications_menu()
@@ -497,6 +591,7 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         context.user_data.pop('pending_delete_id', None)
         context.user_data.pop('pending_delete_threshold', None)
         context.user_data.pop('pending_delete_time', None)
+        context.user_data.pop('bot_message_id', None)
 
         return NOTIFICATION_MENU
 
@@ -508,9 +603,71 @@ async def cancel_notifications(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.pop('pending_threshold', None)
     context.user_data.pop('pending_time', None)
     context.user_data.pop('pending_delete_id', None)
+    context.user_data.pop('bot_message_id', None)
     await update.message.reply_text("Настройка уведомлений отменена.")
     return ConversationHandler.END
 
+
+async def restart_notifications_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Повторный вызов меню уведомлений (при нажатии кнопки внутри диалога).
+    Отправляет НОВОЕ сообщение с меню.
+    """
+    # Очищаем временные данные
+    context.user_data.pop('pending_threshold', None)
+    context.user_data.pop('pending_time', None)
+    context.user_data.pop('pending_delete_id', None)
+    context.user_data.pop('pending_delete_threshold', None)
+    context.user_data.pop('pending_delete_time', None)
+    context.user_data.pop('bot_message_id', None)
+
+    chat_id = update.effective_chat.id
+
+    logger.info(f"Повторный вызов меню уведомлений для пользователя {chat_id}")
+
+    # Проверка аутентификации
+    user = sheets.get_user_by_chat_id(chat_id)
+
+    if not user:
+        await update.message.reply_text(MSG_NOT_REGISTERED)
+        return ConversationHandler.END
+
+    if not user.is_authenticated():
+        await update.message.reply_text(MSG_AUTH_EXPIRED)
+        return ConversationHandler.END
+
+    # Проверка необходимости повторной верификации IsAdmin
+    if user.needs_admin_recheck():
+        logger.info(f"Требуется повторная проверка IsAdmin для {chat_id}")
+        is_admin, message = sheets.recheck_admin_status(chat_id, user.user_login)
+        if not is_admin:
+            logger.warning(f"Статус IsAdmin отозван для {chat_id}: {message}")
+            await update.message.reply_text(MSG_ADMIN_STATUS_REVOKED)
+            return ConversationHandler.END
+
+    # Обновляем данные пользователя в context
+    context.user_data['account_login'] = user.account_login
+    context.user_data['user_login'] = user.user_login
+    context.user_data['auth_status'] = user.auth_status
+
+    # Получаем timezone пользователя
+    timezone = sheets.get_user_timezone(user.user_login)
+    context.user_data['timezone'] = timezone
+
+    # Обновляем время активности
+    sheets.update_last_activity(chat_id)
+
+    # Отправляем НОВОЕ сообщение с меню
+    await update.message.reply_text(
+        "Управление уведомлениями:",
+        reply_markup=get_notifications_menu()
+    )
+
+    return NOTIFICATION_MENU
+
+
+# Обработчик повторного нажатия кнопки "Уведомления" внутри диалога
+_restart_handler = MessageHandler(filters.Regex('^Уведомления$'), restart_notifications_menu)
 
 # Создание ConversationHandler для уведомлений
 notifications_handler = ConversationHandler(
@@ -519,26 +676,33 @@ notifications_handler = ConversationHandler(
     ],
     states={
         NOTIFICATION_MENU: [
+            _restart_handler,
             CallbackQueryHandler(handle_menu_callback)
         ],
         AWAITING_THRESHOLD: [
+            _restart_handler,
             MessageHandler(filters.TEXT & ~filters.COMMAND, receive_threshold),
             CallbackQueryHandler(handle_menu_callback)
         ],
         AWAITING_TIME: [
+            _restart_handler,
             CallbackQueryHandler(handle_time_selection)
         ],
         AWAITING_CUSTOM_TIME: [
+            _restart_handler,
             MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_time),
             CallbackQueryHandler(handle_menu_callback)
         ],
         CONFIRM_SET: [
+            _restart_handler,
             CallbackQueryHandler(handle_set_confirmation)
         ],
         SELECTING_DELETE: [
+            _restart_handler,
             CallbackQueryHandler(handle_delete_selection)
         ],
         CONFIRM_DELETE: [
+            _restart_handler,
             CallbackQueryHandler(handle_delete_confirmation)
         ]
     },
