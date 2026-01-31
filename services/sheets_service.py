@@ -140,7 +140,8 @@ class SheetsService:
             return None
 
         try:
-            cell = sheet.find(user_login)
+            # Ищем только в колонке логинов (F = USERS_COL_LOGIN + 1)
+            cell = sheet.find(user_login, in_column=USERS_COL_LOGIN + 1)
             if not cell:
                 logger.info(f"Логин '{user_login}' не найден в таблице")
                 return None
@@ -148,9 +149,9 @@ class SheetsService:
             logger.info(f"Логин найден в строке {cell.row}, колонке {cell.col}")
 
             row = sheet.row_values(cell.row)
-            login_col = cell.col - 1
-            account_col = login_col + 1
-            admin_col = login_col + 4
+            # Используем фиксированные индексы колонок из констант
+            account_col = USERS_COL_ACCOUNT      # G - Account Name
+            admin_col = USERS_COL_IS_ADMIN       # J - Is Admin
             timezone_col = 8  # Колонка I (0-based index)
 
             account_name = row[account_col] if len(row) > account_col else ''
