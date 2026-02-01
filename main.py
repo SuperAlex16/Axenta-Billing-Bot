@@ -21,7 +21,7 @@ from config import TELEGRAM_BOT_TOKEN
 from handlers.start import registration_handler, get_main_menu
 from handlers.info import show_balance
 from handlers.notifications import notifications_handler
-from handlers.logout import logout_handler
+from handlers.logout import logout_command_handler, logout_callback_handler
 from handlers.common import help_command
 from services.notification_checker import NotificationChecker
 from services.sheets_service import SheetsService
@@ -106,8 +106,9 @@ def main():
     # 2. Уведомления (ConversationHandler)
     application.add_handler(notifications_handler)
 
-    # 3. Logout (ConversationHandler для /logout)
-    application.add_handler(logout_handler)
+    # 3. Logout
+    application.add_handler(logout_command_handler)
+    application.add_handler(logout_callback_handler)
 
     # 4. Команда /help
     application.add_handler(CommandHandler('help', help_command))

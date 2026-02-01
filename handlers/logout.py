@@ -2,7 +2,6 @@
 from telegram import Update, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
-    ConversationHandler,
     CommandHandler,
     CallbackQueryHandler
 )
@@ -18,9 +17,6 @@ from utils.constants import (
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
-
-# Состояния диалога
-CONFIRMING_LOGOUT = 0
 
 # Callback data
 CB_CONFIRM_LOGOUT = "confirm_logout"
@@ -41,7 +37,7 @@ def get_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /logout"""
     chat_id = update.effective_chat.id
 
@@ -52,10 +48,7 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if not user or not user.is_authenticated():
         await update.message.reply_text(MSG_LOGOUT_NOT_LOGGED_IN)
-        return ConversationHandler.END
-
-    # Сохраняем данные для подтверждения
-    context.user_data['logout_account'] = user.account_login
+        return
 
     # Запрашиваем подтверждение
     await update.message.reply_text(
@@ -63,11 +56,9 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=get_confirm_keyboard()
     )
 
-    return CONFIRMING_LOGOUT
 
-
-async def confirm_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Подтверждение выхода"""
+async def handle_logout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопок подтверждения/отмены выхода"""
     query = update.callback_query
     await query.answer()
 
@@ -100,28 +91,16 @@ async def confirm_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             logger.info(f"Пользователь {chat_id} вышел, удалено {deleted_count} уведомлений")
         else:
-            await query.edit_message_text("Произошла ошибка при выходе. Попробуйте позже.")
+            await query.edit_message_text("❌ Произошла ошибка при выходе. Попробуйте позже.")
 
     elif query.data == CB_CANCEL_LOGOUT:
-        await query.edit_message_text("🔙 Выход отменён.")
-
-    return ConversationHandler.END
-
-
-async def cancel_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена выхода"""
-    await update.message.reply_text("🔙 Выход отменён.")
-    return ConversationHandler.END
+        # Удаляем сообщение с кнопками
+        await query.delete_message()
 
 
-# ConversationHandler для logout
-logout_handler = ConversationHandler(
-    entry_points=[CommandHandler('logout', logout_command)],
-    states={
-        CONFIRMING_LOGOUT: [
-            CallbackQueryHandler(confirm_logout, pattern=f"^({CB_CONFIRM_LOGOUT}|{CB_CANCEL_LOGOUT})$")
-        ],
-    },
-    fallbacks=[CommandHandler('cancel', cancel_logout)],
-    per_message=False
+# Обработчики для регистрации в main.py
+logout_command_handler = CommandHandler('logout', logout_command)
+logout_callback_handler = CallbackQueryHandler(
+    handle_logout_callback,
+    pattern=f"^({CB_CONFIRM_LOGOUT}|{CB_CANCEL_LOGOUT})$"
 )
