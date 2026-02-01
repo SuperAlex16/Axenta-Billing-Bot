@@ -108,7 +108,8 @@ def main():
 
     # 3. Logout
     application.add_handler(logout_command_handler)
-    application.add_handler(logout_callback_handler)
+    # Callback handler в отдельной группе (-1), чтобы обрабатывался ДО ConversationHandlers
+    application.add_handler(logout_callback_handler, group=-1)
 
     # 4. Команда /help
     application.add_handler(CommandHandler('help', help_command))
