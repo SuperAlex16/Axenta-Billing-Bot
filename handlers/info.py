@@ -55,7 +55,10 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Форматируем и отправляем сообщение
-    message = balance_info.format_message(user_login=user.user_login)
+    message = balance_info.format_message(
+        user_login=user.user_login,
+        account_login=user.account_login
+    )
     await update.message.reply_text(message, parse_mode='Markdown')
 
     # Логируем

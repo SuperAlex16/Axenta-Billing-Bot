@@ -54,7 +54,7 @@ class SheetsService:
             'balances': {},   # account_login -> (AccountBalance, timestamp)
             'logins': {},     # user_login -> (dict, timestamp)
         }
-        self._cache_ttl = 86400  # 24 часа (БД обновляется раз в сутки)
+        self._cache_ttl = 3600  # 1 час
 
         self._connect()
         self._initialized = True
