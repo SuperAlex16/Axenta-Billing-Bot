@@ -53,25 +53,25 @@ async def post_init(application: Application):
     checker = NotificationChecker(application.bot)
     checker.start(check_interval_minutes=1)
 
-    # Добавляем задачу очистки кэша в 03:05 MSK (00:05 UTC)
+    # Добавляем задачу очистки кэша в 03:05 MSK
     checker.scheduler.add_job(
         clear_cache_job,
-        CronTrigger(hour=0, minute=5, timezone='UTC'),  # 00:05 UTC = 03:05 MSK
+        CronTrigger(hour=3, minute=5, timezone='Europe/Moscow'),
         id='cache_clear',
         name='Clear cache after DB update',
         replace_existing=True
     )
-    logger.info("Задача очистки кэша добавлена (03:05 MSK / 00:05 UTC)")
+    logger.info("Задача очистки кэша добавлена (03:05 MSK)")
 
-    # Добавляем задачу очистки старых логов в 03:10 MSK (00:10 UTC)
+    # Добавляем задачу очистки старых логов в 03:10 MSK
     checker.scheduler.add_job(
         cleanup_logs_job,
-        CronTrigger(hour=0, minute=10, timezone='UTC'),  # 00:10 UTC = 03:10 MSK
+        CronTrigger(hour=3, minute=10, timezone='Europe/Moscow'),
         id='logs_cleanup',
         name='Cleanup old logs (30 days)',
         replace_existing=True
     )
-    logger.info("Задача очистки логов добавлена (03:10 MSK / 00:10 UTC)")
+    logger.info("Задача очистки логов добавлена (03:10 MSK)")
 
     # Сохраняем checker в bot_data для последующего доступа
     application.bot_data['notification_checker'] = checker
@@ -147,8 +147,8 @@ def main():
     # Запуск бота
     logger.info("Бот запущен и готов к работе!")
     logger.info("Уведомления проверяются каждую минуту")
-    logger.info("Кэш очищается ежедневно в 03:05 MSK после обновления БД")
-    logger.info("Логи старше 30 дней удаляются ежедневно в 03:10 MSK")
+    logger.info("Кэш очищается ежедневно в 03:05 MSK (Europe/Moscow)")
+    logger.info("Логи старше 30 дней удаляются ежедневно в 03:10 MSK (Europe/Moscow)")
 
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
