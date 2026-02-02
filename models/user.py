@@ -118,6 +118,7 @@ class AccountBalance:
         account_display = account_login if account_login else self.account_login
         return f"""👤 Пользователь: {user_display}
 🏢 Учётная запись: {account_display}
+
 📅 Дата запроса: {datetime.now().strftime('%d.%m.%Y')}
 
 📊 Тариф за 1 объект: {self.tariff} руб/день
