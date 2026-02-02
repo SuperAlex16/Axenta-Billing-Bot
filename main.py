@@ -63,6 +63,16 @@ async def post_init(application: Application):
     )
     logger.info("Задача очистки кэша добавлена (03:05 MSK / 00:05 UTC)")
 
+    # ТЕСТ: очистка кэша каждые 5 минут
+    checker.scheduler.add_job(
+        clear_cache_job,
+        CronTrigger(minute='*/5'),  # Каждые 5 минут
+        id='cache_clear_test',
+        name='Clear cache every 5 min (TEST)',
+        replace_existing=True
+    )
+    logger.info("ТЕСТ: Очистка кэша каждые 5 минут")
+
     # Добавляем задачу очистки старых логов в 20:10 MSK (17:10 UTC) - ТЕСТ
     checker.scheduler.add_job(
         cleanup_logs_job,
