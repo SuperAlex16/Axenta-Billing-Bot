@@ -587,6 +587,55 @@ class SheetsService:
             logger.error(f"Ошибка добавления лога: {e}")
             return False
 
+    def cleanup_old_logs(self, days: int = 30) -> int:
+        """
+        Удаление логов старше указанного количества дней.
+
+        Args:
+            days: Количество дней для хранения (по умолчанию 30)
+
+        Returns:
+            Количество удалённых строк
+        """
+        sheet = self.get_worksheet(SHEET_LOGS)
+        if not sheet:
+            return 0
+
+        try:
+            all_values = sheet.get_all_values()
+            if len(all_values) <= 1:  # Только заголовок или пусто
+                return 0
+
+            cutoff_date = datetime.now() - timedelta(days=days)
+            rows_to_delete = []
+
+            # Собираем индексы строк для удаления (начинаем с 2, т.к. 1 - заголовок)
+            for idx, row in enumerate(all_values[1:], start=2):
+                if row and row[0]:  # Проверяем, что дата есть
+                    try:
+                        log_date = datetime.strptime(row[0], '%Y-%m-%d')
+                        if log_date < cutoff_date:
+                            rows_to_delete.append(idx)
+                    except ValueError:
+                        continue  # Пропускаем строки с неверным форматом даты
+
+            if not rows_to_delete:
+                logger.info("Нет логов для удаления")
+                return 0
+
+            # Удаляем строки с конца, чтобы не сбивать индексы
+            deleted_count = 0
+            for row_idx in reversed(rows_to_delete):
+                sheet.delete_rows(row_idx)
+                deleted_count += 1
+
+            logger.info(f"Удалено {deleted_count} старых логов (старше {days} дней)")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Ошибка очистки логов: {e}")
+            return 0
+
 
 # Глобальный экземпляр для удобства импорта
 def get_sheets_service() -> SheetsService:

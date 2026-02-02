@@ -38,6 +38,13 @@ def clear_cache_job():
     logger.info("Кэш очищен по расписанию (03:05 MSK)")
 
 
+def cleanup_logs_job():
+    """Задача очистки старых логов (вызывается в 03:10 MSK)"""
+    sheets = SheetsService()
+    deleted = sheets.cleanup_old_logs(days=30)
+    logger.info(f"Очистка логов завершена: удалено {deleted} записей старше 30 дней")
+
+
 async def post_init(application: Application):
     """Действия после инициализации бота"""
     logger.info("Бот инициализирован")
@@ -55,6 +62,16 @@ async def post_init(application: Application):
         replace_existing=True
     )
     logger.info("Задача очистки кэша добавлена (03:05 MSK / 00:05 UTC)")
+
+    # Добавляем задачу очистки старых логов в 03:10 MSK (00:10 UTC)
+    checker.scheduler.add_job(
+        cleanup_logs_job,
+        CronTrigger(hour=0, minute=10),  # 00:10 UTC = 03:10 MSK
+        id='logs_cleanup',
+        name='Cleanup old logs (30 days)',
+        replace_existing=True
+    )
+    logger.info("Задача очистки логов добавлена (03:10 MSK / 00:10 UTC)")
 
     # Сохраняем checker в bot_data для последующего доступа
     application.bot_data['notification_checker'] = checker
@@ -131,6 +148,7 @@ def main():
     logger.info("Бот запущен и готов к работе!")
     logger.info("Уведомления проверяются каждую минуту")
     logger.info("Кэш очищается ежедневно в 03:05 MSK после обновления БД")
+    logger.info("Логи старше 30 дней удаляются ежедневно в 03:10 MSK")
 
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
