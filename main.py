@@ -73,15 +73,15 @@ async def post_init(application: Application):
     )
     logger.info("ТЕСТ: Очистка кэша каждые 5 минут")
 
-    # Добавляем задачу очистки старых логов в 20:10 MSK (17:10 UTC) - ТЕСТ
+    # Добавляем задачу очистки старых логов в 20:55 MSK (17:55 UTC) - ТЕСТ
     checker.scheduler.add_job(
         cleanup_logs_job,
-        CronTrigger(hour=17, minute=10),  # 17:10 UTC = 20:10 MSK
+        CronTrigger(hour=17, minute=55),  # 17:55 UTC = 20:55 MSK
         id='logs_cleanup',
         name='Cleanup old logs (30 days)',
         replace_existing=True
     )
-    logger.info("Задача очистки логов добавлена (20:10 MSK / 17:10 UTC) - ТЕСТ")
+    logger.info("Задача очистки логов добавлена (20:55 MSK / 17:55 UTC) - ТЕСТ")
 
     # Сохраняем checker в bot_data для последующего доступа
     application.bot_data['notification_checker'] = checker
@@ -158,7 +158,7 @@ def main():
     logger.info("Бот запущен и готов к работе!")
     logger.info("Уведомления проверяются каждую минуту")
     logger.info("Кэш очищается ежедневно в 03:05 MSK после обновления БД")
-    logger.info("Логи старше 30 дней удаляются ежедневно в 20:10 MSK (ТЕСТ)")
+    logger.info("Логи старше 30 дней удаляются ежедневно в 20:55 MSK (ТЕСТ)")
 
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
