@@ -112,10 +112,10 @@ class AccountBalance:
             days_left=row[11] if len(row) > 11 else '0'
         )
 
-    def format_message(self) -> str:
+    def format_message(self, user_login: str = None) -> str:
         """Форматирование сообщения о балансе"""
-        account_name = self.organization if self.organization else self.account_login
-        return f"""🏢 Аккаунт: {account_name}
+        display_name = user_login if user_login else self.account_login
+        return f"""🏢 Аккаунт: {display_name}
 📅 Дата запроса: {datetime.now().strftime('%d.%m.%Y')}
 
 📊 Тариф за 1 объект: {self.tariff} руб/день

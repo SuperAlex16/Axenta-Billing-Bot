@@ -342,6 +342,71 @@ class SheetsService:
             logger.error(f"Ошибка обновления статуса IsAdmin: {e}")
             return False, f"Ошибка проверки: {e}"
 
+    def logout_user(self, chat_id: int) -> tuple[bool, int]:
+        """
+        Выход пользователя из аккаунта.
+        Очищает данные авторизации и удаляет все уведомления.
+
+        Args:
+            chat_id: ID чата пользователя
+
+        Returns:
+            (success: bool, deleted_notifications: int)
+        """
+        sheet = self.get_worksheet(SHEET_CHATS)
+        if not sheet:
+            return False, 0
+
+        try:
+            cell = sheet.find(str(chat_id), in_column=1)
+            if not cell:
+                return False, 0
+
+            # Очищаем данные авторизации: token (J), auth_status (K)
+            sheet.batch_update([
+                {'range': f'J{cell.row}', 'values': [['']]},  # token
+                {'range': f'K{cell.row}', 'values': [['Выход']]}  # auth_status
+            ])
+
+            # Инвалидируем кэш пользователя
+            self._invalidate_cache('users', str(chat_id))
+            self._invalidate_cache('logins')
+
+            logger.info(f"Пользователь {chat_id} вышел из аккаунта")
+
+            # Удаляем все уведомления пользователя
+            deleted_count = self._delete_all_user_notifications(chat_id)
+
+            return True, deleted_count
+
+        except Exception as e:
+            logger.error(f"Ошибка выхода пользователя: {e}")
+            return False, 0
+
+    def _delete_all_user_notifications(self, chat_id: int) -> int:
+        """Удаление всех уведомлений пользователя"""
+        sheet = self.get_worksheet(SHEET_NOTIFICATIONS)
+        if not sheet:
+            return 0
+
+        try:
+            all_values = sheet.get_all_values()
+            deleted_count = 0
+
+            for idx, row in enumerate(all_values[1:], start=2):
+                if row[NOTIF_COL_CHAT_ID] == str(chat_id) and row[NOTIF_COL_STATUS] == NOTIF_STATUS_ACTIVE:
+                    sheet.update_cell(idx, NOTIF_COL_STATUS + 1, NOTIF_STATUS_DELETED)
+                    deleted_count += 1
+
+            if deleted_count > 0:
+                logger.info(f"Удалено {deleted_count} уведомлений для chat_id={chat_id}")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Ошибка удаления уведомлений: {e}")
+            return 0
+
     # ==================== Методы для работы с балансом ====================
 
     def get_account_balance(self, account_login: str) -> Optional[AccountBalance]:

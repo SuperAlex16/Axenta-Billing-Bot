@@ -66,7 +66,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     context.user_data['last_name'] = user.last_name or ''
     context.user_data['username'] = user.username or ''
 
-    await update.message.reply_text(MSG_WELCOME)
+    await update.message.reply_text(MSG_WELCOME, parse_mode='Markdown')
     return AWAITING_LOGIN
 
 
