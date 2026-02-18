@@ -23,10 +23,11 @@ from handlers.info import show_balance
 from handlers.notifications import notifications_handler
 from handlers.logout import logout_command_handler, logout_callback_handler
 from handlers.common import help_command
+from handlers.statistics import statistics_handler
 from services.notification_checker import NotificationChecker
 from services.sheets_service import SheetsService
 from utils.logger import setup_logger
-from utils.constants import BTN_SHOW_BALANCE, BTN_HELP
+from utils.constants import BTN_SHOW_BALANCE, BTN_HELP, BTN_STATISTICS
 
 logger = setup_logger(__name__)
 
@@ -120,23 +121,26 @@ def main():
     # 1. Регистрация (ConversationHandler для /start)
     application.add_handler(registration_handler)
 
-    # 2. Уведомления (ConversationHandler)
+    # 2. Статистика расчётов (ConversationHandler)
+    application.add_handler(statistics_handler)
+
+    # 3. Уведомления (ConversationHandler)
     application.add_handler(notifications_handler)
 
-    # 3. Logout
+    # 4. Logout
     application.add_handler(logout_command_handler)
     # Callback handler в отдельной группе (-1), чтобы обрабатывался ДО ConversationHandlers
     application.add_handler(logout_callback_handler, group=-1)
 
-    # 4. Команда /help
+    # 5. Команда /help
     application.add_handler(CommandHandler('help', help_command))
 
-    # 5. Кнопка "Показать баланс"
+    # 6. Кнопка "Показать баланс"
     application.add_handler(
         MessageHandler(filters.Regex(f'^{BTN_SHOW_BALANCE}$'), show_balance)
     )
 
-    # 6. Кнопка "Помощь"
+    # 7. Кнопка "Помощь"
     application.add_handler(
         MessageHandler(filters.Regex(f'^{BTN_HELP}$'), handle_help_button)
     )

@@ -8,10 +8,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import GOOGLE_SHEET_ID, GOOGLE_CREDENTIALS_FILE
+from config import GOOGLE_SHEET_ID, GOOGLE_CREDENTIALS_FILE, GOOGLE_SHEET_VYGR_ID, GOOGLE_SHEET_DDS_ID
 from utils.logger import setup_logger
 from utils.constants import (
     SHEET_USERS, SHEET_DATA, SHEET_CHATS, SHEET_NOTIFICATIONS, SHEET_LOGS,
+    SHEET_VYGR, SHEET_DDS, SHEET_LOGS_STAT, DDS_PAYMENT_ARTICLE,
     USERS_COL_LOGIN, USERS_COL_ACCOUNT, USERS_COL_IS_ADMIN,
     DATA_COL_ACCOUNT,
     NOTIF_COL_CHAT_ID, NOTIF_COL_ID, NOTIF_COL_STATUS,
@@ -585,6 +586,315 @@ class SheetsService:
             return True
         except Exception as e:
             logger.error(f"Ошибка добавления лога: {e}")
+            return False
+
+    def _open_spreadsheet_by_id(self, spreadsheet_id: str) -> Optional[gspread.Spreadsheet]:
+        """Открытие внешней таблицы по ID"""
+        try:
+            return self.client.open_by_key(spreadsheet_id)
+        except Exception as e:
+            logger.error(f"Ошибка открытия таблицы {spreadsheet_id}: {e}")
+            return None
+
+    # ==================== Методы для статистики (Этап 2) ====================
+
+    # Фиксированные индексы столбцов листа «Выгрузка»
+    VYGR_COL_DATE = 0       # A — Дата выгрузки
+    VYGR_COL_ACCOUNT = 2    # C — Название аккаунта
+    VYGR_COL_OBJECTS = 3    # D — Активных объектов
+    VYGR_COL_TARIFF = 10    # K — Цена за объект в сутки, руб
+    VYGR_COL_CHARGE = 11    # L — Сумма списания, руб
+
+    @staticmethod
+    def _parse_currency(value: str) -> float:
+        """Парсинг валютной строки вида 'р.3 207,38' → 3207.38"""
+        if not value:
+            return 0.0
+        cleaned = value.replace('р.', '').replace('\xa0', '').replace(' ', '').replace(',', '.')
+        try:
+            return float(cleaned)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def get_charges_for_period(self, account_login: str, year: int, month: int) -> list:
+        """
+        Читает лист 'Выгрузка' из файла «Выгрузка из AXENTA».
+        Фильтрует по Название аккаунта == account_login
+        и Дата выгрузки в пределах month/year.
+
+        Возвращает список:
+        [
+            {
+                'date': date(2026, 1, 1),
+                'objects': 387,
+                'tariff': 2.66,
+                'charge': -1029.42   # отрицательное
+            },
+            ...
+        ]
+        """
+        if not GOOGLE_SHEET_VYGR_ID:
+            logger.error("GOOGLE_SHEET_VYGR_ID не задан в конфигурации")
+            return []
+
+        try:
+            spreadsheet = self._open_spreadsheet_by_id(GOOGLE_SHEET_VYGR_ID)
+            if not spreadsheet:
+                return []
+
+            sheet = spreadsheet.worksheet(SHEET_VYGR)
+            all_values = sheet.get_all_values()
+
+            if len(all_values) <= 1:
+                return []
+
+            result = []
+            for row in all_values[1:]:
+                if len(row) <= self.VYGR_COL_CHARGE:
+                    continue
+
+                # Фильтр по аккаунту
+                if row[self.VYGR_COL_ACCOUNT] != account_login:
+                    continue
+
+                # Парсим дату
+                date_str = row[self.VYGR_COL_DATE]
+                row_date = None
+                for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%Y-%m-%d %H:%M:%S', '%d.%m.%Y %H:%M:%S'):
+                    try:
+                        row_date = datetime.strptime(date_str.strip(), fmt).date()
+                        break
+                    except (ValueError, AttributeError):
+                        continue
+
+                if row_date is None:
+                    continue
+
+                # Фильтр по периоду
+                if row_date.year != year or row_date.month != month:
+                    continue
+
+                # Парсим числовые значения
+                try:
+                    objects_val = int(row[self.VYGR_COL_OBJECTS]) if row[self.VYGR_COL_OBJECTS] else 0
+                except (ValueError, TypeError):
+                    objects_val = 0
+
+                tariff_val = self._parse_currency(row[self.VYGR_COL_TARIFF])
+                charge_val = self._parse_currency(row[self.VYGR_COL_CHARGE])
+
+                result.append({
+                    'date': row_date,
+                    'objects': objects_val,
+                    'tariff': tariff_val,
+                    'charge': -abs(charge_val)  # Всегда отрицательное
+                })
+
+            logger.info(f"Выгрузка: найдено {len(result)} записей для {account_login} за {month}/{year}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Ошибка чтения Выгрузки: {e}")
+            return []
+
+    def get_payments_for_period(self, account_login: str, year: int, month: int) -> dict:
+        """
+        Читает лист 'Журнал операций' из файла «ДДС Axenta».
+        header=6 (заголовки в 7-й строке, индекс 6).
+
+        Фильтры:
+        - Статья ДДС == 'Оплата на баланс Аксенты'
+        - Учётная запись == account_login
+        - Дата в пределах month/year
+
+        Возвращает dict: {date(2026, 1, 12): 12000.0, date(2026, 1, 26): 5000.0}
+        Если несколько пополнений за один день — суммируются.
+        """
+        if not GOOGLE_SHEET_DDS_ID:
+            logger.error("GOOGLE_SHEET_DDS_ID не задан в конфигурации")
+            return {}
+
+        try:
+            spreadsheet = self._open_spreadsheet_by_id(GOOGLE_SHEET_DDS_ID)
+            if not spreadsheet:
+                return {}
+
+            sheet = spreadsheet.worksheet(SHEET_DDS)
+            all_values = sheet.get_all_values()
+
+            # Заголовки в строке с индексом 6 (7-я строка)
+            header_row_idx = 6
+            if len(all_values) <= header_row_idx + 1:
+                return {}
+
+            headers = all_values[header_row_idx]
+
+            # Ищем индексы нужных столбцов
+            try:
+                idx_date = headers.index('Дата')
+                idx_amount = headers.index('Сумма операции, руб')
+                idx_account = headers.index('Учётная запись')
+                idx_article = headers.index('Статья ДДС')
+            except ValueError as e:
+                logger.error(f"Столбец не найден в ДДС: {e}")
+                return {}
+
+            result = {}
+            for row in all_values[header_row_idx + 1:]:
+                if len(row) <= max(idx_date, idx_amount, idx_account, idx_article):
+                    continue
+
+                # Фильтр по статье ДДС
+                if row[idx_article].strip() != DDS_PAYMENT_ARTICLE:
+                    continue
+
+                # Фильтр по аккаунту
+                if row[idx_account].strip() != account_login:
+                    continue
+
+                # Парсим дату
+                date_str = row[idx_date]
+                row_date = None
+                for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%Y-%m-%d %H:%M:%S', '%d.%m.%Y %H:%M:%S'):
+                    try:
+                        row_date = datetime.strptime(date_str.strip(), fmt).date()
+                        break
+                    except (ValueError, AttributeError):
+                        continue
+
+                if row_date is None:
+                    continue
+
+                # Фильтр по периоду
+                if row_date.year != year or row_date.month != month:
+                    continue
+
+                # Парсим сумму
+                amount = self._parse_currency(row[idx_amount])
+
+                # Суммируем пополнения за один день
+                if row_date in result:
+                    result[row_date] += amount
+                else:
+                    result[row_date] = amount
+
+            logger.info(f"ДДС: найдено {len(result)} дней с пополнениями для {account_login} за {month}/{year}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Ошибка чтения ДДС: {e}")
+            return {}
+
+    def get_total_activity_for_range(self, account_login: str,
+                                      start_date, end_date) -> tuple:
+        """
+        Суммарные списания и поступления за диапазон дат [start_date, end_date].
+
+        Returns:
+            (total_charges: float, total_payments: float)
+            charges — отрицательные, payments — положительные.
+        """
+        total_charges = 0.0
+        total_payments = 0.0
+
+        # --- Списания из Выгрузки ---
+        if GOOGLE_SHEET_VYGR_ID:
+            try:
+                spreadsheet = self._open_spreadsheet_by_id(GOOGLE_SHEET_VYGR_ID)
+                if spreadsheet:
+                    sheet = spreadsheet.worksheet(SHEET_VYGR)
+                    all_values = sheet.get_all_values()
+                    for row in all_values[1:]:
+                        if len(row) <= self.VYGR_COL_CHARGE:
+                            continue
+                        if row[self.VYGR_COL_ACCOUNT] != account_login:
+                            continue
+                        date_str = row[self.VYGR_COL_DATE]
+                        row_date = None
+                        for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%Y-%m-%d %H:%M:%S', '%d.%m.%Y %H:%M:%S'):
+                            try:
+                                row_date = datetime.strptime(date_str.strip(), fmt).date()
+                                break
+                            except (ValueError, AttributeError):
+                                continue
+                        if row_date is None:
+                            continue
+                        if start_date <= row_date <= end_date:
+                            charge_val = self._parse_currency(row[self.VYGR_COL_CHARGE])
+                            total_charges += -abs(charge_val)
+            except Exception as e:
+                logger.error(f"Ошибка чтения Выгрузки для диапазона: {e}")
+
+        # --- Поступления из ДДС ---
+        if GOOGLE_SHEET_DDS_ID:
+            try:
+                spreadsheet = self._open_spreadsheet_by_id(GOOGLE_SHEET_DDS_ID)
+                if spreadsheet:
+                    sheet = spreadsheet.worksheet(SHEET_DDS)
+                    all_values = sheet.get_all_values()
+                    header_row_idx = 6
+                    if len(all_values) > header_row_idx + 1:
+                        headers = all_values[header_row_idx]
+                        try:
+                            idx_date = headers.index('Дата')
+                            idx_amount = headers.index('Сумма операции, руб')
+                            idx_account = headers.index('Учётная запись')
+                            idx_article = headers.index('Статья ДДС')
+                        except ValueError:
+                            idx_date = idx_amount = idx_account = idx_article = None
+                        if idx_date is not None:
+                            for row in all_values[header_row_idx + 1:]:
+                                if len(row) <= max(idx_date, idx_amount, idx_account, idx_article):
+                                    continue
+                                if row[idx_article].strip() != DDS_PAYMENT_ARTICLE:
+                                    continue
+                                if row[idx_account].strip() != account_login:
+                                    continue
+                                date_str = row[idx_date]
+                                row_date = None
+                                for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%Y-%m-%d %H:%M:%S', '%d.%m.%Y %H:%M:%S'):
+                                    try:
+                                        row_date = datetime.strptime(date_str.strip(), fmt).date()
+                                        break
+                                    except (ValueError, AttributeError):
+                                        continue
+                                if row_date is None:
+                                    continue
+                                if start_date <= row_date <= end_date:
+                                    total_payments += self._parse_currency(row[idx_amount])
+            except Exception as e:
+                logger.error(f"Ошибка чтения ДДС для диапазона: {e}")
+
+        logger.info(
+            f"Активность за {start_date}..{end_date} для {account_login}: "
+            f"charges={total_charges:.2f}, payments={total_payments:.2f}"
+        )
+        return total_charges, total_payments
+
+    def add_stat_log(self, status: str, action: str, message: str) -> bool:
+        """Добавление записи в лог статистики (вкладка Logs Stat)"""
+        try:
+            sheet = self.spreadsheet.worksheet(SHEET_LOGS_STAT)
+        except gspread.exceptions.WorksheetNotFound:
+            logger.error(f"Лист '{SHEET_LOGS_STAT}' не найден")
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка доступа к листу '{SHEET_LOGS_STAT}': {e}")
+            return False
+
+        try:
+            now = datetime.now()
+            row = [
+                now.strftime('%Y-%m-%d'),
+                now.strftime('%H:%M:%S'),
+                status,
+                action,
+                message
+            ]
+            sheet.append_row(row)
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка добавления лога статистики: {e}")
             return False
 
     def cleanup_old_logs(self, days: int = 30) -> int:

@@ -20,7 +20,7 @@ from utils.constants import (
     MSG_WELCOME, MSG_LOGIN_NOT_FOUND, MSG_NOT_ADMIN, MSG_EMAIL_REQUEST, MSG_EMAIL_INVALID,
     MSG_PASSWORD_REQUEST, MSG_AUTH_SUCCESS, MSG_AUTH_FAILED,
     MSG_ALREADY_REGISTERED, MSG_REGISTRATION_CANCELLED, MSG_SAVE_ERROR,
-    BTN_SHOW_BALANCE, BTN_NOTIFICATIONS, BTN_HELP, AUTH_STATUS_PASSED
+    BTN_SHOW_BALANCE, BTN_STATISTICS, BTN_NOTIFICATIONS, BTN_HELP, AUTH_STATUS_PASSED
 )
 from utils.logger import setup_logger
 
@@ -38,6 +38,7 @@ def get_main_menu() -> ReplyKeyboardMarkup:
     """Создание главного меню бота"""
     keyboard = [
         [BTN_SHOW_BALANCE],
+        [BTN_STATISTICS],
         [BTN_NOTIFICATIONS, BTN_HELP]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

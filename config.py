@@ -20,6 +20,13 @@ GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials/serv
 NOTIFICATION_CHECK_INTERVAL = int(os.getenv('NOTIFICATION_CHECK_INTERVAL', 3600))
 NOTIFICATION_TIMEZONE = os.getenv('NOTIFICATION_TIMEZONE', 'Europe/Moscow')
 
+# Google Sheets — дополнительные таблицы (Этап 2)
+GOOGLE_SHEET_VYGR_ID = os.getenv('GOOGLE_SHEET_VYGR_ID')
+GOOGLE_SHEET_DDS_ID = os.getenv('GOOGLE_SHEET_DDS_ID')
+
+# Год начала доступной статистики
+STATISTICS_START_YEAR = 2026
+
 # Logging
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE = os.getenv('LOG_FILE', 'bot.log')
